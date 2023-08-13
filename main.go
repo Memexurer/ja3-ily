@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"net/url"
 
@@ -10,24 +11,25 @@ import (
 func hello(w http.ResponseWriter, req *http.Request) {
 	var err error
 
-	req = req.Clone(req.Context())
-
-	rawQuery := req.URL.RawQuery
+	originalRawQuery := req.URL.RawQuery
 	if req.URL, err = url.ParseRequestURI(req.Header.Get("TargetUrl")); err != nil {
 		panic(err)
 	}
-	req.URL.RawQuery = rawQuery
+	req.URL.RawQuery = originalRawQuery // url param proxy
 
 	httpclient, err := NewClient(Browser{JA3: req.Header.Get("JA3"), UserAgent: req.Header.Get("UA"), Cookies: nil},
-		60, false, req.Header.Get("UA"), req.Header.Get("Proxy"))
+		60, false, req.Header.Get("UA"), req.Header.Get("Proxy")) // idk??? i stole this from dmdgo
 	if err != nil {
-		panic(err)
+		w.WriteHeader(502)
+		fmt.Fprintf(w, "%v", err)
+		return
 	}
 
 	req.Header.Del("TargetUrl")
 	req.Header.Del("JA3")
 	req.Header.Del("UA")
 	req.Header.Del("Proxy")
+	// remove headers so they wont get passed to the upstream
 
 	resp, err := httpclient.Do(&http.Request{
 		Method:     req.Method,
@@ -40,7 +42,9 @@ func hello(w http.ResponseWriter, req *http.Request) {
 		Host:       req.URL.Host,
 	})
 	if err != nil {
-		panic(err)
+		w.WriteHeader(502)
+		fmt.Fprintf(w, "%v", err)
+		return
 	}
 
 	for name, headers := range resp.Header {
@@ -54,7 +58,11 @@ func hello(w http.ResponseWriter, req *http.Request) {
 }
 
 func main() {
-	print("Running on 127.0.0.1:8090")
 	http.HandleFunc("/", hello)
-	http.ListenAndServe("127.0.0.1:8090", nil)
+
+	fmt.Println("Running on 127.0.0.1:8090")
+	err := http.ListenAndServe("127.0.0.1:8090", nil)
+	if err != nil {
+		panic(err)
+	}
 }
